@@ -1,0 +1,139 @@
+
+
+context를 실제 예시로 설명해드리겠습니다.
+
+식당에서 주문을 하는 상황을 생각해보세요:
+
+1. **타임아웃 상황**
+```go
+func orderFood(ctx context.Context) error {
+    // 30초 안에 주문이 완료되어야 함
+    ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+    defer cancel()
+
+    // 주방에 주문을 전달
+    select {
+    case <-ctx.Done():  // 30초가 지나면 여기로
+        return fmt.Errorf("주문 시간 초과: %v", ctx.Err())
+    case <-kitchen.PrepareFood():  // 정상적으로 음식이 준비되면 여기로
+        return nil
+    }
+}
+```
+
+2. **작업 취소 상황**
+```go
+func main() {
+    ctx, cancel := context.WithCancel(context.Background())
+    
+    // 손님이 중간에 주문을 취소할 수 있음
+    go func() {
+        if customerCancelsOrder {
+            cancel()  // 주문 취소 신호 전달
+        }
+    }()
+
+    // 주방에서 음식 준비
+    go cookFood(ctx)
+}
+
+func cookFood(ctx context.Context) {
+    select {
+    case <-ctx.Done():
+        fmt.Println("주문이 취소되었습니다")
+        return
+    default:
+        // 음식 준비 계속
+    }
+}
+```
+
+context는 마치 식당에서:
+- 주문 취소 가능
+- 준비 시간 제한
+- 주문 상태 추적
+
+이런 것들을 관리하는 것과 비슷합니다.
+
+실제 웹 서버에서는:
+```go
+func handleRequest(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()  // 요청의 context를 가져옴
+    
+    // 클라이언트가 연결을 끊으면 자동으로 취소됨
+    select {
+    case <-ctx.Done():
+        fmt.Println("클라이언트가 연결을 끊었습니다")
+        return
+    case result := <-processRequest(ctx):
+        fmt.Fprintf(w, "결과: %v", result)
+    }
+}
+```
+
+즉, context는:
+- 작업 취소 신호 전달
+- 시간 제한 설정
+- 작업 간의 상태 공유
+이런 용도로 사용되는 도구입니다.
+
+
+네, 클라이언트마다 별도의 context를 생성하여 사용하는 것은 매우 일반적인 패턴입니다.
+
+예를 들어보겠습니다:
+
+```go
+type RateLimiter struct {
+    clients map[string]*ClientContext
+    mu      sync.Mutex
+}
+
+type ClientContext struct {
+    ctx        context.Context
+    cancel     context.CancelFunc
+    lastAccess time.Time
+    requests   int
+}
+
+func (r *RateLimiter) HandleRequest(clientID string) error {
+    r.mu.Lock()
+    client, exists := r.clients[clientID]
+    if !exists {
+        // 새로운 클라이언트면 새 context 생성
+        ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+        client = &ClientContext{
+            ctx:        ctx,
+            cancel:     cancel,
+            lastAccess: time.Now(),
+        }
+        r.clients[clientID] = client
+    }
+    r.mu.Unlock()
+
+    // 요청 제한 확인
+    if client.requests >= 100 { // 시간당 100개 요청 제한
+        return errors.New("rate limit exceeded")
+    }
+
+    select {
+    case <-client.ctx.Done():
+        return errors.New("client context expired")
+    default:
+        client.requests++
+        return nil
+    }
+}
+```
+
+이런 패턴이 유용한 경우들:
+- 각 클라이언트별 타임아웃 관리
+- 클라이언트별 요청 제한 (rate limiting)
+- 특정 클라이언트의 모든 작업을 한번에 취소
+- 클라이언트별 리소스 사용 추적
+
+주의할 점:
+- 메모리 관리 (사용하지 않는 context는 취소하고 정리)
+- 동시성 처리 (mutex 등 사용)
+- context 생명주기 관리
+
+이렇게 클라이언트별로 context를 관리하면 더 세밀한 제어가 가능합니다.
