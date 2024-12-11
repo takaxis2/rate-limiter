@@ -137,3 +137,216 @@ func (r *RateLimiter) HandleRequest(clientID string) error {
 - context 생명주기 관리
 
 이렇게 클라이언트별로 context를 관리하면 더 세밀한 제어가 가능합니다.
+
+여러 서버를 관리할 수 있는 티켓팅 시스템의 파일 구조를 설계해보겠습니다.
+
+```
+ticketing-system/
+│
+├── cmd/
+│   ├── gateway/             # API Gateway 서버
+│   │   └── main.go
+│   ├── queue-server/        # 대기열 관리 서버
+│   │   └── main.go
+│   └── ticket-server/       # 티켓 처리 서버
+│       └── main.go
+│
+├── internal/
+│   ├── gateway/
+│   │   ├── router/         # 라우팅 및 로드밸런싱
+│   │   │   └── router.go
+│   │   └── proxy/          # 프록시 설정
+│   │       └── proxy.go
+│   │
+│   ├── queue/
+│   │   ├── service/        # 대기열 서비스 로직
+│   │   │   └── queue.go
+│   │   ├── model/         
+│   │   │   └── queue.go
+│   │   └── repository/     # 대기열 데이터 저장
+│   │       └── redis.go
+│   │
+│   ├── ticket/
+│   │   ├── service/        # 티켓 서비스 로직
+│   │   │   └── ticket.go
+│   │   ├── model/
+│   │   │   └── ticket.go
+│   │   └── repository/     # 티켓 데이터 저장
+│   │       └── postgres.go
+│   │
+│   ├── middleware/
+│   │   ├── auth.go
+│   │   └── rate_limit.go
+│   │
+│   └── common/
+│       ├── config/         # 서버별 설정
+│       │   ├── gateway.go
+│       │   ├── queue.go
+│       │   └── ticket.go
+│       └── monitoring/     # 모니터링
+│           └── prometheus.go
+│
+├── pkg/
+│   ├── loadbalancer/       # 로드밸런서
+│   │   └── balancer.go
+│   ├── discovery/         # 서비스 디스커버리
+│   │   └── consul.go
+│   └── metrics/           # 메트릭 수집
+│       └── collector.go
+│
+├── docker/                # 도커 설정
+│   ├── gateway/
+│   │   └── Dockerfile
+│   ├── queue-server/
+│   │   └── Dockerfile
+│   └── ticket-server/
+│       └── Dockerfile
+│
+├── deployments/           # 배포 설정
+│   ├── kubernetes/       # k8s 설정
+│   │   ├── gateway.yaml
+│   │   ├── queue.yaml
+│   │   └── ticket.yaml
+│   └── terraform/        # 인프라 설정
+│       └── main.tf
+│
+├── docker-compose.yml    # 로컬 개발용 도커 컴포즈
+├── Makefile             # 빌드 및 배포 스크립트
+└── README.md
+```
+
+### 서버별 역할 설명
+
+1. **API Gateway 서버 (cmd/gateway)**
+```go
+// cmd/gateway/main.go
+package main
+
+import (
+    "gateway/router"
+    "gateway/proxy"
+)
+
+func main() {
+    // 게이트웨이 서버 설정
+    gateway := gateway.New(
+        gateway.WithLoadBalancer(),
+        gateway.WithServiceDiscovery(),
+        gateway.WithRateLimit(),
+    )
+    
+    // 서버 시작
+    gateway.Start()
+}
+```
+
+2. **대기열 서버 (cmd/queue-server)**
+```go
+// cmd/queue-server/main.go
+package main
+
+import (
+    "queue/service"
+    "queue/repository"
+)
+
+func main() {
+    // Redis 연결
+    redis := repository.NewRedisClient()
+    
+    // 대기열 서비스 설정
+    queueService := service.NewQueueService(
+        service.WithRedis(redis),
+        service.WithMetrics(),
+    )
+    
+    // 서버 시작
+    server := NewServer(queueService)
+    server.Start()
+}
+```
+
+3. **티켓 서버 (cmd/ticket-server)**
+```go
+// cmd/ticket-server/main.go
+package main
+
+import (
+    "ticket/service"
+    "ticket/repository"
+)
+
+func main() {
+    // DB 연결
+    db := repository.NewPostgresDB()
+    
+    // 티켓 서비스 설정
+    ticketService := service.NewTicketService(
+        service.WithDB(db),
+        service.WithCache(),
+    )
+    
+    // 서버 시작
+    server := NewServer(ticketService)
+    server.Start()
+}
+```
+
+### 서비스 간 통신
+
+```go
+// pkg/discovery/consul.go
+type ServiceDiscovery interface {
+    Register(service *Service) error
+    Deregister(serviceID string) error
+    GetService(name string) ([]*Service, error)
+}
+
+// pkg/loadbalancer/balancer.go
+type LoadBalancer interface {
+    Next(serviceName string) (*Service, error)
+    UpdateServices(services []*Service)
+}
+```
+
+### 모니터링 및 메트릭
+
+```go
+// internal/common/monitoring/prometheus.go
+type Metrics interface {
+    RecordQueueLength(length int)
+    RecordWaitTime(duration time.Duration)
+    RecordRequestCount(status string)
+}
+```
+
+### 배포 설정
+
+```yaml
+# deployments/kubernetes/gateway.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+      - name: gateway
+        image: ticketing/gateway:latest
+```
+
+이 구조의 장점:
+1. 서버별 독립적인 스케일링 가능
+2. 서비스 디스커버리를 통한 동적 서버 관리
+3. 로드밸런싱을 통한 부하 분산
+4. 각 서버의 독립적인 배포 및 업데이트
+5. 통합 모니터링 및 메트릭 수집
+
+실제 운영 시에는:
+- Kubernetes를 통한 컨테이너 오케스트레이션
+- Consul이나 etcd를 통한 서비스 디스커버리
+- Prometheus + Grafana를 통한 모니터링
+- ELK 스택을 통한 로그 관리
+를 구현할 수 있습니다.
