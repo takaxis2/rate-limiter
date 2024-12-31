@@ -1,0 +1,16 @@
+# config.yaml
+server:
+  address: ":8080"
+  readTimeout: 5s
+  writeTimeout: 10s
+
+redis:
+  address: "localhost:6379"
+  password: ""
+  db: 0
+
+rateLimit:
+  keyPrefix: "ratelimit"
+  rate: 10.0  # 초당 처리할 수 있는 요청 수
+  capacity: 100.0  
+  type: "tokenbucket"

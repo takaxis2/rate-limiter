@@ -65,9 +65,9 @@ type TokenBucket struct {
 	*RateLimiterBase
 }
 
-func NewTokenBucket(capacity, tokensPerSecond, tokens int) RateLimiter {
+func NewTokenBucket(ctx context.Context, capacity, tokensPerSecond, tokens int) RateLimiter {
 	allowCh := make(chan requestTokensCh, LIMITER_CAPACITY)
-	ctx, cancelFunc := context.WithCancel(context.Background())
+	ctx, cancelFunc := context.WithCancel(ctx)
 	rlBase := &RateLimiterBase{
 		allowCh:  allowCh,
 		stopFunc: cancelFunc,
@@ -79,7 +79,7 @@ func NewTokenBucket(capacity, tokensPerSecond, tokens int) RateLimiter {
 		tokens:          tokens,
 		lastTime:        time.Now(),
 	}
-
+	rl.refillTokens()
 	rl.wg.Add(1)
 	go rl.tokenBucketAlgorithm(ctx)
 
@@ -89,35 +89,59 @@ func NewTokenBucket(capacity, tokensPerSecond, tokens int) RateLimiter {
 func (rl *TokenBucket) tokenBucketAlgorithm(ctx context.Context) {
 	// runs the token bucket algorithm in a separate goroutine and also checks for event(cancelling the context) to stop this goroutine
 	defer rl.wg.Done()
+
+	// tokenPerSecond를 적용한것
+	// ticker := time.NewTicker(time.Duration(1e9 / int64(rl.tokensPerSecond)))
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-ticker.C:
+			rl.refillTokens()
 		case reqTokensCh := <-rl.allowCh:
-			fmt.Printf("tokens requested: %d, available tokens: %d ", reqTokensCh.tokens, rl.tokens)
+			fmt.Printf("available tokens: %d \n", rl.tokens)
 
-			currentTime := time.Now()
-			timePassed := currentTime.Sub(rl.lastTime).Seconds()
-			temp := rl.tokens + int(timePassed)*rl.tokensPerSecond
-			fmt.Printf("total new tokens: %d ", temp)
-			if rl.capacity <= temp {
-				rl.tokens = rl.capacity
-			} else {
-				rl.tokens = temp
-			}
-			rl.lastTime = currentTime
 			resp := false
 
 			if reqTokensCh.tokens <= rl.tokens {
 				rl.tokens -= reqTokensCh.tokens
 				resp = true
-			} else {
-				resp = false
 			}
 			reqTokensCh.resCh <- resp
 			close(reqTokensCh.resCh)
 		}
 	}
+}
+
+func (rl *TokenBucket) refillTokens() {
+	// 이 방법은 tokenBucketAlgorithm에서 tokenPerSecond를 적용하지 않았을때
+	// 초당 1번 불러지면 tokenPerSecond만큼의 토큰을 한번에 충전
+	// tokenPerSecond가 tokenBucketAlgorithm에 적용 되었다면
+	// 예를 들어 초당 5개의 토큰이 생성된다 가정했을때
+	// 200ms마다 토큰을 하나씩 충전하는 형태가 된다
+
+	// currentTime := time.Now()
+	// timePassed := currentTime.Sub(rl.lastTime).Seconds()
+	// temp := rl.tokens + int(timePassed)*rl.tokensPerSecond
+	// rl.tokens = temp
+	// if rl.capacity < rl.tokens {
+	// 	rl.tokens = rl.capacity
+	// }
+	// rl.lastTime = currentTime
+
+	//=========================================================
+
+	newTokens := rl.tokensPerSecond
+	rl.tokens += newTokens
+
+	if rl.tokens > rl.capacity {
+		rl.tokens = rl.capacity
+	}
+
+	fmt.Printf("total tokens: %d \n", rl.tokens)
 }
 
 type LeakyBucket struct {
