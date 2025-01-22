@@ -6,27 +6,30 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/takaxis2/rate-limiter/internals/broker"
 	"github.com/takaxis2/rate-limiter/internals/limiters"
+	"github.com/takaxis2/rate-limiter/internals/storage"
 )
 
 type QueueWorker struct {
-	rdb       *redis.Client
-	keyPrefix string
-	limiter   limiters.RateLimiter
-	// rate      float64 //이거 필요하나?
+	qm       *storage.QueueManager
+	key      string
+	limiter  limiters.RateLimiter
 	shutdown chan struct{}
+	eb       *broker.EventBroker
 }
 
-func NewQueueWorker(rdb *redis.Client, keyPrefix string, limiter limiters.RateLimiter) *QueueWorker {
+func NewQueueWorker(qm *storage.QueueManager, key string, limiter limiters.RateLimiter, eb *broker.EventBroker) *QueueWorker {
 	return &QueueWorker{
-		rdb:       rdb,
-		keyPrefix: keyPrefix,
-		limiter:   limiter,
+		qm:      qm,
+		key:     key,
+		limiter: limiter,
+		eb:      eb,
 	}
 }
 
 func (w *QueueWorker) Start(ctx context.Context) {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(5000 * time.Millisecond)
 	for {
 		select {
 		case <-ctx.Done():
@@ -34,19 +37,26 @@ func (w *QueueWorker) Start(ctx context.Context) {
 		case <-w.shutdown:
 			return
 		case <-ticker.C:
-			clientId, err := w.rdb.LPop(ctx, w.keyPrefix+"queue").Result()
+			clients, err := w.qm.GetTopNClients(ctx, 1)
 			if err != nil && err != redis.Nil {
 				log.Printf("Error fetching from Redis: %v", err)
 				continue
 			}
 
-			if clientId != "" {
+			if len(clients) == 0 {
+				continue
+			}
+
+			if clients[0] != "" {
 				if w.limiter.Allow(1) {
 					//채널, sse
-				} else {
-					// 토큰이 없으면 다시 맨 앞에 삽입
-					w.rdb.LPush(ctx, w.keyPrefix+"queue", clientId)
+					w.eb.Publish(clients[0])
+					w.qm.RemoveClient(ctx, clients[0])
 				}
+				// else {
+				// 	// 토큰이 없으면 다시 맨 앞에 삽입
+				// 	// w.rdb.LPush(ctx, w.keyPrefix+"queue", clientId)
+				// }
 			}
 
 			// default:
