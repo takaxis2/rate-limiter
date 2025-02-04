@@ -70,6 +70,17 @@ func NewMetrics(qm *storage.QueueManager, queueKey string) *Metrics {
 	return m
 }
 
+func (m *Metrics) RecordMetrics(ctx context.Context, domain string, waitDuration, processDuration time.Duration, status string) {
+	// 대기 시간 기록
+	m.waitTime.WithLabelValues(domain).Observe(waitDuration.Seconds())
+
+	// 처리 시간 기록
+	m.processTime.WithLabelValues(domain).Observe(processDuration.Seconds())
+
+	// 요청 상태 카운터 증가
+	m.requestStatus.WithLabelValues(domain, status).Inc()
+}
+
 func (m *Metrics) StartMetricsCollection(ctx context.Context) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
@@ -83,10 +94,11 @@ func (m *Metrics) StartMetricsCollection(ctx context.Context) {
 			length, err := m.qm.GetTotalClients(ctx)
 			if err != nil {
 				if err == redis.Nil {
-					length = -1
+					m.queueLength.WithLabelValues(m.queueKey).Set(-1)
 				} else {
-					continue
+					m.queueLength.WithLabelValues(m.queueKey).Set(-2)
 				}
+				continue
 			}
 
 			// 큐 길이 메트릭 업데이트

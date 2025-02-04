@@ -33,8 +33,11 @@ type RateLimitConfig struct {
 func Load() (*Config, error) {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath("../..")
-	viper.AddConfigPath("./config")
+
+	viper.AddConfigPath(".")
+	// viper.AddConfigPath("./config")
+	viper.AddConfigPath("../")
+	// viper.AddConfigPath("../../config")
 
 	//기본값 설정
 	viper.SetDefault("server.address", "8080")

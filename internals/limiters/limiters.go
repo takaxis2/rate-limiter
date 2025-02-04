@@ -58,14 +58,14 @@ func (rlb *RateLimiterBase) Stop() {
 }
 
 type TokenBucket struct {
-	capacity        int
-	tokensPerSecond int
-	tokens          int
+	capacity        float32
+	tokensPerSecond float32
+	tokens          float32
 	lastTime        time.Time
 	*RateLimiterBase
 }
 
-func NewTokenBucket(ctx context.Context, capacity, tokensPerSecond, tokens int) RateLimiter {
+func NewTokenBucket(ctx context.Context, capacity, tokensPerSecond, tokens float32) RateLimiter {
 	allowCh := make(chan requestTokensCh, LIMITER_CAPACITY)
 	ctx, cancelFunc := context.WithCancel(ctx)
 	rlBase := &RateLimiterBase{
@@ -102,12 +102,12 @@ func (rl *TokenBucket) tokenBucketAlgorithm(ctx context.Context) {
 		case <-ticker.C:
 			rl.refillTokens()
 		case reqTokensCh := <-rl.allowCh:
-			fmt.Printf("available tokens: %d \n", rl.tokens)
+			fmt.Printf("available tokens: %f \n", rl.tokens)
 
 			resp := false
 
-			if reqTokensCh.tokens <= rl.tokens {
-				rl.tokens -= reqTokensCh.tokens
+			if float32(reqTokensCh.tokens) <= rl.tokens {
+				rl.tokens -= float32(reqTokensCh.tokens)
 				resp = true
 			}
 			reqTokensCh.resCh <- resp
