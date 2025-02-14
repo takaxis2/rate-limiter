@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token Bucket 설정</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+    </style>
+</head>
+<body>
+    <h1>Token Bucket 설정</h1>
+    <form id="configForm">
+        <div class="form-group">
+            <label for="capacity">Capacity (용량):</label>
+            <input type="number" id="capacity" step="0.1" required>
+        </div>
+        <div class="form-group">
+            <label for="refillRate">Refill Rate (초당 리필률):</label>
+            <input type="number" id="refillRate" step="0.1" required>
+        </div>
+        <button type="submit">설정 업데이트</button>
+    </form>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('configForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const capacity = parseFloat(document.getElementById('capacity').value);
+            const refillRate = parseFloat(document.getElementById('refillRate').value);
+            
+            const config = {
+                capacity: capacity,
+                refillRate: refillRate
+            };
+
+            try {
+                const response = await fetch('/config/tokenbucket', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(config)
+                });
+
+                const result = await response.json();
+                const resultDiv = document.getElementById('result');
+                
+                if (response.ok) {
+                    resultDiv.className = 'success';
+                    resultDiv.textContent = '설정이 성공적으로 업데이트되었습니다.';
+                } else {
+                    resultDiv.className = 'error';
+                    resultDiv.textContent = `오류: ${result.message || '설정 업데이트 실패'}`;
+                }
+            } catch (error) {
+                const resultDiv = document.getElementById('result');
+                resultDiv.className = 'error';
+                resultDiv.textContent = `오류: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html>

@@ -35,6 +35,11 @@ type QueueStatus struct {
 	QueueLength   int           `json:"queue_length"`   // 전체 대기열 길이
 }
 
+type TokenBucketConfig struct {
+	Capacity   float32 `json:"capacity"`
+	RefillRate float32 `json:"refillRate"`
+}
+
 func NewHandlers(rl limiters.RateLimiter, qm *storage.QueueManager, eb *broker.EventBroker) *http.ServeMux {
 
 	sm := http.NewServeMux()
@@ -43,6 +48,7 @@ func NewHandlers(rl limiters.RateLimiter, qm *storage.QueueManager, eb *broker.E
 	sm.HandleFunc("/api/events", EventsHandler(eb))       // 핸들러 함수로 변경
 	sm.HandleFunc("/api/position", func(w http.ResponseWriter, r *http.Request) {})
 	sm.Handle("/metric", promhttp.Handler())
+	sm.HandleFunc("/config/tokenbucket", TokenBucketConfigHandler(rl))
 
 	return sm
 }
@@ -142,6 +148,51 @@ func EventsHandler(eb *broker.EventBroker) http.HandlerFunc {
 				// w.Write([]byte("data:" + string(data) + "\n\n"))
 				flusher.Flush()
 			}
+		}
+	}
+}
+
+func TokenBucketConfigHandler(rl limiters.RateLimiter) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			tmpl, err := template.ParseFiles("static/config.html")
+			if err != nil {
+				http.Error(w, "템플릿 로드 실패", http.StatusInternalServerError)
+				return
+			}
+			tmpl.Execute(w, nil)
+
+		case http.MethodPut:
+			var config TokenBucketConfig
+			if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+				http.Error(w, "Invalid request", http.StatusBadRequest)
+				return
+			}
+
+			// 값 유효성 검사
+			if config.Capacity <= 0 || config.RefillRate <= 0 {
+				http.Error(w, "Invalid values: capacity and refillRate must be positive", http.StatusBadRequest)
+				return
+			}
+
+			// TokenBucket으로 타입 변환
+			tokenBucket, ok := rl.(*limiters.TokenBucket)
+			if !ok {
+				http.Error(w, "Rate limiter is not a token bucket", http.StatusInternalServerError)
+				return
+			}
+
+			// 설정 업데이트
+			tokenBucket.UpdateConfig(config.Capacity, config.RefillRate)
+
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{
+				"message": "Token bucket configuration updated successfully",
+			})
+
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}
 }

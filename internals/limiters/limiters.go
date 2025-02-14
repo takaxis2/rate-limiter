@@ -141,7 +141,21 @@ func (rl *TokenBucket) refillTokens() {
 		rl.tokens = rl.capacity
 	}
 
-	fmt.Printf("total tokens: %d \n", rl.tokens)
+	fmt.Printf("total tokens: %f \n", rl.tokens)
+}
+
+func (rl *TokenBucket) UpdateConfig(capacity, refillRate float32) error {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	if capacity <= 0 || refillRate <= 0 {
+		return fmt.Errorf("capacity / refillRate must be greater than 0")
+	}
+
+	rl.capacity = capacity
+	rl.tokensPerSecond = refillRate
+
+	return nil
 }
 
 type LeakyBucket struct {
