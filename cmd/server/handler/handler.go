@@ -48,7 +48,7 @@ func NewHandlers(rl limiters.RateLimiter, qm *storage.QueueManager, eb *broker.E
 	sm.HandleFunc("/api/events", EventsHandler(eb))       // 핸들러 함수로 변경
 	sm.HandleFunc("/api/position", func(w http.ResponseWriter, r *http.Request) {})
 	sm.Handle("/metric", promhttp.Handler())
-	sm.HandleFunc("/config/tokenbucket", TokenBucketConfigHandler(rl))
+	sm.HandleFunc("/config/tb", TokenBucketConfigHandler(rl))
 
 	return sm
 }
