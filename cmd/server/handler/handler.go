@@ -4,6 +4,7 @@ package handler
 //그럼 레디스
 import (
 	// "encoding/json"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -18,11 +19,11 @@ import (
 	// "time"
 )
 
-type Handlers struct {
-	rl limiters.RateLimiter
-	qm *storage.QueueManager
-	eb *broker.EventBroker
-}
+// type Handlers struct {
+// 	rl limiters.RateLimiter
+// 	qm *storage.QueueManager
+// 	eb *broker.EventBroker
+// }
 
 type RequestData struct {
 	UserID      string `json:"user_id"`
@@ -38,6 +39,18 @@ type QueueStatus struct {
 type TokenBucketConfig struct {
 	Capacity   float32 `json:"capacity"`
 	RefillRate float32 `json:"refillRate"`
+}
+
+type UserStatus string
+
+const (
+	StatusQueued    UserStatus = "queued"
+	StatusProcessed UserStatus = "processed"
+)
+
+type UserInfo struct {
+	ID     string     `json:"id"`
+	Status UserStatus `json:"status"`
 }
 
 func NewHandlers(rl limiters.RateLimiter, qm *storage.QueueManager, eb *broker.EventBroker) *http.ServeMux {
@@ -62,25 +75,54 @@ func RequestHandler(qm *storage.QueueManager, rl limiters.RateLimiter) http.Hand
 			http.Error(w, "Queue error", http.StatusInternalServerError)
 			return
 		}
-		if queueLen == 0 {
-			if rl.Allow(1) {
-				fmt.Fprintf(w, "목표 페이지로 리다이랙트")
-				// ... 기존 코드 ...
-			} else {
-				clientID := uuid.New().String()
-				qm.AddClient(ctx, clientID)
-				http.SetCookie(w, &http.Cookie{
-					Name:  "UserId",
-					Value: clientID,
-				})
-				http.Redirect(w, r, "/api/wait", http.StatusSeeOther)
+		// 대기자가 없을경우
+		// if queueLen == 0 {
+		// 	// 대기자가 없지만 토큰은 있을때
+		// 	if rl.Allow(1) {
+		// 		fmt.Fprintf(w, "목표 페이지로 리다이랙트")
+		// 	} else { // 대기자도 토큰도 없을때
+		// 		clientID := uuid.New().String()
+		// 		qm.AddClient(ctx, clientID)
+		// 		http.SetCookie(w, &http.Cookie{
+		// 			Name:  "UserId",
+		// 			Value: clientID,
+		// 		})
+		// 		http.Redirect(w, r, "/api/wait", http.StatusSeeOther)
+		// 	}
+		// } else { // 대기자가 있으면 토큰이 있든 없든 댜기열에 추가가
+		// 	clientID := uuid.New().String()
+		// 	qm.AddClient(ctx, clientID)
+		// 	http.SetCookie(w, &http.Cookie{
+		// 		Name:  "UserId",
+		// 		Value: clientID,
+		// 	})
+		// 	http.Redirect(w, r, "/api/wait", http.StatusSeeOther)
+		// }
+
+		clientID := uuid.New().String()
+		userInfo := UserInfo{
+			ID: clientID,
+		}
+		// 대기자가 없고 토큰이 있는 경우에만 즉시 리다이렉트
+		if queueLen == 0 && rl.Allow(1) {
+			fmt.Fprintf(w, "목표 레이지로 리다이렉트")
+			userInfo.Status = StatusProcessed
+		} else
+		// 그 외의 경우에는 무조건 대기열에 추가
+		// 대기열이 있거나, 토큰이 없거나, 둘다 해당되거나
+		{
+			userInfo.Status = StatusQueued
+
+			userInfoJson, err := json.Marshal(userInfo)
+			if err != nil {
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			}
-		} else {
-			clientID := uuid.New().String()
+
 			qm.AddClient(ctx, clientID)
 			http.SetCookie(w, &http.Cookie{
-				Name:  "UserId",
-				Value: clientID,
+				Name:  "UserInfo",
+				Value: base64.StdEncoding.EncodeToString(userInfoJson),
+				// HttpOnly: true,
 			})
 			http.Redirect(w, r, "/api/wait", http.StatusSeeOther)
 		}
@@ -90,19 +132,32 @@ func RequestHandler(qm *storage.QueueManager, rl limiters.RateLimiter) http.Hand
 func WaitHandler(qm *storage.QueueManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		tmpl, err := template.ParseFiles("static/index.html")
+		tmpl, err := template.ParseFiles("server/static/index.html")
 		if err != nil {
 			fmt.Print(err)
 			http.Error(w, "템플릿 로드 실패", http.StatusInternalServerError)
 			return
 		}
-		userId, err := r.Cookie("UserId")
+		userInfoCookie, err := r.Cookie("UserInfo")
 		if err != nil {
 			http.Error(w, "유저 정보가 없습니다", http.StatusInternalServerError)
 			return
 		}
+		// base64 디코딩
+		userInfoBytes, err := base64.StdEncoding.DecodeString(userInfoCookie.Value)
+		if err != nil {
+			http.Error(w, "Invalid user info format", http.StatusInternalServerError)
+			return
+		}
 
-		wnum, err := qm.GetClientPosition(ctx, userId.Value)
+		// JSON 디코딩
+		var userInfo UserInfo
+		if err := json.Unmarshal(userInfoBytes, &userInfo); err != nil {
+			http.Error(w, "Invalid user info data", http.StatusInternalServerError)
+			return
+		}
+
+		wnum, err := qm.GetClientPosition(ctx, userInfo.ID)
 		if err != nil {
 			http.Error(w, "유저 정보가 없습니다", http.StatusInternalServerError)
 			return
@@ -156,7 +211,7 @@ func TokenBucketConfigHandler(rl limiters.RateLimiter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			tmpl, err := template.ParseFiles("static/config.html")
+			tmpl, err := template.ParseFiles("./static/config.html")
 			if err != nil {
 				http.Error(w, "템플릿 로드 실패", http.StatusInternalServerError)
 				return

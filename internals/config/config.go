@@ -25,9 +25,10 @@ type RedisConfig struct {
 }
 
 type RateLimitConfig struct {
-	KeyPrefix string
-	Rate      float64
-	Capacity  float64
+	KeyPrefix       string
+	Capacity        float64
+	TokensPerSecond float64
+	Tokens          float64
 }
 
 func Load() (*Config, error) {
@@ -48,8 +49,9 @@ func Load() (*Config, error) {
 	viper.SetDefault("redis.db", 0)
 
 	viper.SetDefault("rateLimit.keyPrefix", "rateLimit")
-	viper.SetDefault("rateLimit.rate", 10.0)
-	viper.SetDefault("rateLimit.capacity", 100.0)
+	viper.SetDefault("rateLimit.tokensPerSecond", 0.1)
+	viper.SetDefault("rateLimit.capacity", 10.0)
+	viper.SetDefault("rateLimit.tokens", 1.0)
 
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, err

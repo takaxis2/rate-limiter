@@ -11,6 +11,7 @@ redis:
 
 rateLimit:
   keyPrefix: "ratelimit"
-  rate: 10.0  # 초당 처리할 수 있는 요청 수
-  capacity: 100.0  
+  capacity: 10.0  
+  tokensPerSecond: 0.1  # 초당 충전되는 토큰
+  tokens: 1.0
   type: "tokenbucket"

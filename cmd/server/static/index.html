@@ -32,13 +32,33 @@
             return null;
         }
 
-        const userID = getCookie("UserId");
+        function parseUserInfo(cookieValue) {
+            try {
+                const decoded = atob(cookieValue); // base64 디코딩
+                return JSON.parse(decoded);
+            } catch (e) {
+                console.error('쿠키 파싱 에러:', e);
+                return null;
+            }
+        }
+
+        const userInfoCookie = getCookie("UserInfo");
+        const userInfo = userInfoCookie ? parseUserInfo(userInfoCookie) : null;
+        const userID = userInfo ? userInfo.id : null;
+
 
         eventSource.onmessage = function(event) {
             const data = JSON.parse(event.data);
             console.log(data)
 
             if(userID === data.user_id){
+                const updatedUserInfo = {
+                    id: userID,
+                    status: "processed"
+                };
+                const encodedUserInfo = btoa(JSON.stringify(updatedUserInfo));
+                document.cookie = `UserInfo=${encodedUserInfo}; HttpOnly`;
+                
                 window.location.href = 'https://www.naver.com'
             }
 
