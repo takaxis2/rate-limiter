@@ -15,11 +15,18 @@ import (
 	"github.com/takaxis2/rate-limiter/internals/broker"
 	"github.com/takaxis2/rate-limiter/internals/config"
 	"github.com/takaxis2/rate-limiter/internals/limiters"
+	"github.com/takaxis2/rate-limiter/internals/logger"
+	metrics "github.com/takaxis2/rate-limiter/internals/metric"
 	worker "github.com/takaxis2/rate-limiter/internals/service"
 	"github.com/takaxis2/rate-limiter/internals/storage"
 )
 
 func main() {
+
+	// 로거 초기화
+	logger.Init("dev")
+	defer logger.Sync()
+
 	//설정 불러오기 db든 yaml이든
 	cfg, err := config.Load()
 	if err != nil {
@@ -47,6 +54,10 @@ func main() {
 
 	eb := broker.NewEventBroker()
 	sm := handler.NewHandlers(rl, qm, eb)
+
+	// 메트릭 초기화 및 시작
+	metrics := metrics.NewMetrics(qm, "domain")
+	go metrics.StartMetricsCollection(ctx)
 
 	server := &http.Server{
 		Addr:    cfg.Server.Address,

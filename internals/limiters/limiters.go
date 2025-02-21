@@ -151,6 +151,9 @@ func (rl *TokenBucket) UpdateConfig(capacity, refillRate float32) error {
 	if capacity <= 0 || refillRate <= 0 {
 		return fmt.Errorf("capacity / refillRate must be greater than 0")
 	}
+	if rl.capacity > capacity {
+		rl.tokens = capacity
+	}
 
 	rl.capacity = capacity
 	rl.tokensPerSecond = refillRate

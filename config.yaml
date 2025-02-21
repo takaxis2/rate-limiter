@@ -15,3 +15,5 @@ rateLimit:
   tokensPerSecond: 0.1  # 초당 충전되는 토큰
   tokens: 1.0
   type: "tokenbucket"
+
+env: "dev" #dev 또는 prod

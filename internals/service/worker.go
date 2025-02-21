@@ -21,10 +21,11 @@ type QueueWorker struct {
 
 func NewQueueWorker(qm *storage.QueueManager, key string, limiter limiters.RateLimiter, eb *broker.EventBroker) *QueueWorker {
 	return &QueueWorker{
-		qm:      qm,
-		key:     key,
-		limiter: limiter,
-		eb:      eb,
+		qm:       qm,
+		key:      key,
+		limiter:  limiter,
+		eb:       eb,
+		shutdown: make(chan struct{}),
 	}
 }
 
